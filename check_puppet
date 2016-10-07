@@ -1,0 +1,83 @@
+#!/usr/bin/python
+
+import datetime
+import os.path
+import pprint
+import subprocess
+
+import yaml  # http://pyyaml.org
+try:
+    from yaml import CLoader as YAMLLoader
+except ImportError:
+    from yaml import Loader as YAMLLoader
+import dateutil.parser  # http://dateutil.readthedocs.org
+
+# http://pynag.org
+from pynag.Plugins import PluginHelper, ok, warning, critical, unknown
+nagios = PluginHelper()
+
+ERROR_LOG_LEVELS = ['err', ':err', 'alert', ':alert', 'emerg', ':emerg', 'crit', ':crit']
+
+def get_puppet_setting(name):
+    proc = subprocess.Popen(['puppet', 'config', 'print', name], stdout=subprocess.PIPE)
+    (value, ignored) = proc.communicate()
+    return value.strip()
+
+# These functions are needed to handle the Ruby object (and symbol) definitions
+# in the YAML.  Basically, we treat objects as dicts and symbols as strings.
+def construct_ruby_object(loader, suffix, node):
+    return loader.construct_yaml_map(node)
+YAMLLoader.add_multi_constructor('!ruby/object:', construct_ruby_object)
+def construct_ruby_sym(loader, node):
+    return loader.construct_yaml_str(node)
+YAMLLoader.add_constructor('!ruby/sym', construct_ruby_sym)
+
+report = yaml.load(open(get_puppet_setting('lastrunreport'), 'r'), Loader=YAMLLoader)
+
+for log_entry in report['logs']:
+    if isinstance(log_entry['time'], datetime.datetime):
+        end_time = log_entry['time']
+    else:
+        end_time = dateutil.parser.parse(log_entry['time'])
+        # Convert to UTC
+        end_time = (end_time - end_time.utcoffset()).replace(tzinfo=None)
+# timedelta.total_seconds() wasn't added until Python 2.7.
+last_run_time = end_time - report['time']
+last_run_seconds = float(last_run_time.microseconds + (last_run_time.seconds + last_run_time.days * 24 * 3600) * 10**6) / 10**6
+nagios.add_metric(label='last_run_time', value=last_run_seconds)
+#pprint.pprint(report, indent=2)
+
+### CRITICAL if last run failed.
+if report['status'] in ['failed', ':failed']:
+    nagios.status(critical)
+    nagios.add_summary('Last Puppet run failed.')
+    for log_entry in report['logs']:
+        if log_entry['level'] in ERROR_LOG_LEVELS:
+            nagios.add_long_output('%s: %s' % (log_entry['source'], log_entry['message']))
+    nagios.exit()
+
+### WARNING if there were errors in last run (but the run didn't fail).
+errors_found = False
+for log_entry in report['logs']:
+    if log_entry['level'] in ERROR_LOG_LEVELS:
+        nagios.add_long_output('%s: %s' % (log_entry['source'], log_entry['message']))
+        errors_found = True
+if errors_found:
+    nagios.status(warning)
+    nagios.add_summary('Errors found in last run.')
+    nagios.exit()
+
+## WARNING if it's been too long since the last run.
+runinterval = int(get_puppet_setting('runinterval'))
+predicted_next_end_time = end_time + datetime.timedelta(seconds=runinterval)
+if predicted_next_end_time < datetime.datetime.utcnow():
+    nagios.status(warning)
+    nagios.add_summary('Time since last run: %s' % (datetime.datetime.utcnow() - end_time))
+    if os.path.isfile(get_puppet_setting('agent_catalog_run_lockfile')):
+        nagios.add_long_output('There appears to be a puppet run in progress.')
+    nagios.exit()
+
+## OK if we get to this point.
+nagios.status(ok)
+nagios.add_summary('Puppet is up to date and the last run reported no errors.')
+nagios.exit()
