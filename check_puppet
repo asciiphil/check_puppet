@@ -1,6 +1,7 @@
 #!/usr/bin/python
 
 import datetime
+import os
 import os.path
 import pprint
 import subprocess
@@ -15,6 +16,9 @@ import dateutil.parser  # http://dateutil.readthedocs.org
 # http://pynag.org
 from pynag.Plugins import PluginHelper, ok, warning, critical, unknown
 nagios = PluginHelper()
+
+# Add standard Puppet locations to $PATH, just in case.
+os.environ['PATH'] = ':'.join([os.getenv('PATH'), '/opt/puppetlabs/bin'])
 
 ERROR_LOG_LEVELS = ['err', ':err', 'alert', ':alert', 'emerg', ':emerg', 'crit', ':crit']
 
