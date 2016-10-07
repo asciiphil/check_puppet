@@ -23,9 +23,15 @@ os.environ['PATH'] = ':'.join([os.getenv('PATH'), '/opt/puppetlabs/bin'])
 ERROR_LOG_LEVELS = ['err', ':err', 'alert', ':alert', 'emerg', ':emerg', 'crit', ':crit']
 
 def get_puppet_setting(name):
-    proc = subprocess.Popen(['puppet', 'config', 'print', name], stdout=subprocess.PIPE)
-    (value, ignored) = proc.communicate()
-    return value.strip()
+    try:
+        proc = subprocess.Popen(['puppet', 'config', 'print', name], stdout=subprocess.PIPE)
+        (value, ignored) = proc.communicate()
+        return value.strip()
+    except OSError, e:
+        nagios.status(unknown)
+        nagios.add_summary('Unable to run "puppet" program to check local configuration.')
+        nagios.add_long_output(str(e))
+        nagios.exit()
 
 # These functions are needed to handle the Ruby object (and symbol) definitions
 # in the YAML.  Basically, we treat objects as dicts and symbols as strings.
