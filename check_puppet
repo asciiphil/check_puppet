@@ -57,25 +57,24 @@ last_run_seconds = float(last_run_time.microseconds + (last_run_time.seconds + l
 nagios.add_metric(label='last_run_time', value=last_run_seconds)
 #pprint.pprint(report, indent=2)
 
-### CRITICAL if last run failed.
-if report['status'] in ['failed', ':failed']:
-    nagios.status(critical)
-    nagios.add_summary('Last Puppet run failed.')
-    for log_entry in report['logs']:
-        if log_entry['level'] in ERROR_LOG_LEVELS:
-            nagios.add_long_output('%s: %s' % (log_entry['source'], log_entry['message']))
-    nagios.exit()
+# At this point, default the status to OK.
+nagios.status(ok)
 
-### WARNING if there were errors in last run (but the run didn't fail).
+# Add error logs to summary.
 errors_found = False
 for log_entry in report['logs']:
     if log_entry['level'] in ERROR_LOG_LEVELS:
         nagios.add_long_output('%s: %s' % (log_entry['source'], log_entry['message']))
         errors_found = True
-if errors_found:
+
+### CRITICAL if last run failed.
+if report['status'] in ['failed', ':failed']:
+    nagios.status(critical)
+    nagios.add_summary('Last Puppet run failed')
+elif errors_found:
+    ### WARNING if there were errors in last run (but the run didn't fail).
     nagios.status(warning)
-    nagios.add_summary('Errors found in last run.')
-    nagios.exit()
+    nagios.add_summary('Errors found in last run')
 
 ## WARNING if it's been too long since the last run.
 runinterval = int(get_puppet_setting('runinterval'))
@@ -84,10 +83,8 @@ if next_run_deadline < datetime.datetime.utcnow():
     nagios.status(warning)
     nagios.add_summary('Time since last run: %s' % (datetime.datetime.utcnow() - end_time))
     if os.path.isfile(get_puppet_setting('agent_catalog_run_lockfile')):
-        nagios.add_long_output('There appears to be a puppet run in progress.')
-    nagios.exit()
+        nagios.add_long_output('There appears to be a puppet run in progress')
 
-## OK if we get to this point.
-nagios.status(ok)
-nagios.add_summary('Puppet is up to date and the last run reported no errors.')
+if nagios.status() == ok:
+    nagios.add_summary('Puppet is up to date and the last run reported no errors')
 nagios.exit()
