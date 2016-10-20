@@ -79,8 +79,8 @@ if errors_found:
 
 ## WARNING if it's been too long since the last run.
 runinterval = int(get_puppet_setting('runinterval'))
-predicted_next_end_time = end_time + datetime.timedelta(seconds=runinterval)
-if predicted_next_end_time < datetime.datetime.utcnow():
+next_run_deadline = report['time'] + datetime.timedelta(seconds=runinterval * 2)
+if next_run_deadline < datetime.datetime.utcnow():
     nagios.status(warning)
     nagios.add_summary('Time since last run: %s' % (datetime.datetime.utcnow() - end_time))
     if os.path.isfile(get_puppet_setting('agent_catalog_run_lockfile')):
